@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Databricks MDEF Framework Presentation</title>
+  <style>
+    :root { --bg:#f8fafc; --card:#ffffff; --text:#102a43; --muted:#486581; --line:#d9e2ec; --accent:#0b7285; }
+    body { margin:0; background:linear-gradient(180deg,#eef7fb 0%, var(--bg) 40%); color:var(--text); font:16px/1.6 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .wrap { max-width:1100px; margin:40px auto; padding:0 20px; }
+    article { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:34px; box-shadow:0 8px 30px rgba(16,42,67,.06); }
+    h1,h2,h3,h4 { line-height:1.25; margin-top:1.3em; color:#0b3c5d; }
+    h1 { margin-top:0; font-size:2rem; border-bottom:2px solid var(--line); padding-bottom:.45rem; }
+    h2 { font-size:1.45rem; border-left:5px solid var(--accent); padding-left:.55rem; }
+    p,li { color:var(--text); }
+    code { background:#f0f4f8; border:1px solid #d9e2ec; border-radius:6px; padding:.12rem .33rem; font-family:Consolas, 'Courier New', monospace; }
+    pre { background:#0f172a; color:#e2e8f0; border-radius:10px; padding:14px; overflow:auto; border:1px solid #1e293b; }
+    pre code { background:transparent; border:none; padding:0; color:inherit; }
+    blockquote { border-left:4px solid #9fb3c8; margin:1rem 0; padding:.2rem .9rem; background:#f8fbfe; color:#243b53; }
+    table { border-collapse:collapse; width:100%; margin:1rem 0; font-size:.95rem; }
+    th,td { border:1px solid var(--line); padding:8px 10px; vertical-align:top; }
+    th { background:#f0f4f8; text-align:left; }
+    hr { border:0; border-top:1px solid var(--line); margin:1.2rem 0; }
+    a { color:#0c6b8e; }
+    .meta { color:var(--muted); font-size:.9rem; margin-bottom:1rem; }
+    .mermaid { background:#fff; border:1px dashed #bcccdc; border-radius:10px; padding:10px; margin:1rem 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <article>
+      <div class="meta">Generated from Markdown on 2026-07-14</div>
+      <h1 id="databricks-metadata-driven-elt-framework">Databricks Metadata-Driven ELT Framework</h1>
+<h2 id="design-and-build-plan-presentation-document">Design and Build Plan — Presentation Document</h2>
+<p><strong>Framework</strong>: Metadata-Driven ELT Framework (MDEF)<br />
+<strong>Platform</strong>: Databricks Lakeflow<br />
+<strong>Proof of Concept</strong>: SCION Data Platform<br />
+<strong>Date</strong>: July 2026<br />
+<strong>Author</strong>: Data Engineering Team</p>
+<blockquote>
+<p><em>A general-purpose, reusable ELT platform for any Databricks project or catalog.<br />
+SCION just happens to be our first proof of concept.</em></p>
+</blockquote>
+<hr />
+<h2 id="1-what-we-are-building">1. What We Are Building</h2>
+<p>The MDEF is a single reusable data engineering engine that processes any number of datasets<br />
+from any source system. All behavior is controlled through six metadata tables.<br />
+No separate pipeline per table. No separate notebook per source. One framework. Configuration drives everything.</p>
+<h3 id="the-problem-today">The Problem Today</h3>
+<table>
+<thead>
+<tr>
+<th>Without This Framework</th>
+<th>With This Framework</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>One pipeline per table</td>
+<td>One reusable engine</td>
+</tr>
+<tr>
+<td>Separate notebook per source</td>
+<td>Configuration rows per dataset</td>
+</tr>
+<tr>
+<td>DQ logic scattered everywhere</td>
+<td>Centralized rule registry</td>
+</tr>
+<tr>
+<td>Audit logic rebuilt each time</td>
+<td>Standard audit contract</td>
+</tr>
+<tr>
+<td>Onboarding a new dataset = engineering sprint</td>
+<td>Onboarding a new dataset = INSERT rows</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-core-principle">The Core Principle</h3>
+<pre><code>Metadata  =  The instruction book
+Code      =  The worker that follows instructions
+Lakeflow  =  The execution and orchestration platform
+</code></pre>
+<h3 id="general-purpose-design">General-Purpose Design</h3>
+<p>This framework is not tied to any catalog, team, or source system.<br />
+Any Databricks project can adopt it:</p>
+<ol>
+<li>Deploy the framework via Declarative Asset Bundle</li>
+<li>Create the six metadata tables in the project catalog</li>
+<li>Populate metadata rows for source objects</li>
+<li>Run the Lakeflow Job</li>
+</ol>
+<p><strong>SCION Data Platform</strong> is the first project to adopt this framework as a Proof of Concept.<br />
+The architectural decisions made during the SCION POC will inform the framework's evolution.</p>
+<hr />
+<h2 id="2-the-lego-design-philosophy">2. The LEGO Design Philosophy</h2>
+<p>The framework is built as interchangeable LEGO bricks.<br />
+Each brick is self-contained, well-defined, and replaceable.<br />
+Metadata controls which bricks activate and how they connect.<br />
+Swapping one brick does not require redesigning the rest.</p>
+<pre><code>┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  SOURCE      │  │  INGESTION   │  │  METADATA    │  │ORCHESTRATION │
+│  LEGO        │  │  LEGO        │  │  LEGO        │  │  LEGO        │
+│              │  │              │  │              │  │              │
+│ Oracle       │  │ Auto Loader  │  │ source_config│  │ Lakeflow Jobs│
+│ SAP          │  │ JDBC         │  │ object_config│  │ Schedule     │
+│ CSV/JSON     │  │ LF Connect   │  │ column_config│  │ Retry        │
+│ Kafka        │  │ Kafka Conn.  │  │ quality_rules│  │ Monitor      │
+│ REST API     │  │ API Conn.    │  │ gold_config  │  │ Alert        │
+└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│TRANSFORMATION│  │  QUALITY     │  │  AUDIT       │  │ CONSUMPTION  │
+│  LEGO        │  │  LEGO        │  │  LEGO        │  │  LEGO        │
+│              │  │              │  │              │  │              │
+│ Bronze stage │  │ Rule engine  │  │pipeline_audit│  │ Power BI     │
+│ Silver stage │  │ SQL booleans │  │ Metrics      │  │ SQL queries  │
+│ Gold models  │  │ Quarantine   │  │ Run history  │  │ ML pipelines │
+│ CDC / SCD2   │  │ Warn/Drop    │  │ Alerting     │  │ AI apps      │
+└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
+</code></pre>
+<hr />
+<h2 id="3-the-six-metadata-tables">3. The Six Metadata Tables</h2>
+<p>A simple framework starts with six tables.<br />
+Together they are the complete instruction book.</p>
+<h3 id="31-source_config">3.1 source_config</h3>
+<p>One row per source system. Answers: <em>Where does data come from?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>source_id</td>
+<td>STRING</td>
+<td>Unique identifier</td>
+</tr>
+<tr>
+<td>source_name</td>
+<td>STRING</td>
+<td>Friendly name</td>
+</tr>
+<tr>
+<td>source_type</td>
+<td>STRING</td>
+<td>cloud_files / jdbc / lakeflow_connect / kafka / api</td>
+</tr>
+<tr>
+<td>ingestion_method</td>
+<td>STRING</td>
+<td>autoloader / jdbc / lakeflow_connect / kafka / api</td>
+</tr>
+<tr>
+<td>landing_required</td>
+<td>BOOLEAN</td>
+<td>true = files need landing volume before Bronze</td>
+</tr>
+<tr>
+<td>connection_ref</td>
+<td>STRING</td>
+<td>Secret scope reference or UC connection name</td>
+</tr>
+<tr>
+<td>base_path</td>
+<td>STRING</td>
+<td>Root path for file-based sources</td>
+</tr>
+<tr>
+<td>active</td>
+<td>BOOLEAN</td>
+<td>Enable or disable this source</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32-object_config">3.2 object_config</h3>
+<p>One row per dataset. Answers: <em>Which datasets to process and how?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>object_id</td>
+<td>STRING</td>
+<td>Unique identifier</td>
+</tr>
+<tr>
+<td>source_id</td>
+<td>STRING</td>
+<td>FK to source_config</td>
+</tr>
+<tr>
+<td>object_name</td>
+<td>STRING</td>
+<td>Logical name (e.g. customers)</td>
+</tr>
+<tr>
+<td>source_path</td>
+<td>STRING</td>
+<td>Full source path or table name</td>
+</tr>
+<tr>
+<td>file_format</td>
+<td>STRING</td>
+<td>csv / json / parquet</td>
+</tr>
+<tr>
+<td>load_type</td>
+<td>STRING</td>
+<td>FULL / INCREMENTAL / CDC / SNAPSHOT</td>
+</tr>
+<tr>
+<td>primary_key</td>
+<td>STRING</td>
+<td>Business key column(s), comma-separated</td>
+</tr>
+<tr>
+<td>incremental_column</td>
+<td>STRING</td>
+<td>Watermark column for incremental loads</td>
+</tr>
+<tr>
+<td>bronze_table</td>
+<td>STRING</td>
+<td>Target Bronze table (catalog.schema.table)</td>
+</tr>
+<tr>
+<td>silver_table</td>
+<td>STRING</td>
+<td>Target Silver table</td>
+</tr>
+<tr>
+<td>active</td>
+<td>BOOLEAN</td>
+<td>Enable or disable this object</td>
+</tr>
+<tr>
+<td>execution_order</td>
+<td>INT</td>
+<td>Optional sequence number</td>
+</tr>
+<tr>
+<td>parallel_group</td>
+<td>STRING</td>
+<td>Optional parallel execution group</td>
+</tr>
+</tbody>
+</table>
+<h3 id="33-column_config">3.3 column_config</h3>
+<p>One row per column per dataset. Answers: <em>What should each dataset look like after cleaning?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>object_id</td>
+<td>STRING</td>
+<td>FK to object_config</td>
+</tr>
+<tr>
+<td>source_column</td>
+<td>STRING</td>
+<td>Column name in source</td>
+</tr>
+<tr>
+<td>target_column</td>
+<td>STRING</td>
+<td>Standardized target name</td>
+</tr>
+<tr>
+<td>target_type</td>
+<td>STRING</td>
+<td>Spark SQL type: STRING, BIGINT, TIMESTAMP...</td>
+</tr>
+<tr>
+<td>nullable</td>
+<td>BOOLEAN</td>
+<td>Allow null values</td>
+</tr>
+<tr>
+<td>primary_key_indicator</td>
+<td>BOOLEAN</td>
+<td>Part of the business key</td>
+</tr>
+<tr>
+<td>sequence</td>
+<td>INT</td>
+<td>Output column order (1-based)</td>
+</tr>
+<tr>
+<td>trim_indicator</td>
+<td>BOOLEAN</td>
+<td>Strip leading/trailing whitespace</td>
+</tr>
+<tr>
+<td>pii_classification</td>
+<td>STRING</td>
+<td>PII / SENSITIVE / PUBLIC</td>
+</tr>
+<tr>
+<td>active</td>
+<td>BOOLEAN</td>
+<td>Include or exclude this column</td>
+</tr>
+</tbody>
+</table>
+<h3 id="34-quality_rule_config">3.4 quality_rule_config</h3>
+<p>One row per DQ rule per dataset. Answers: <em>What makes a record valid?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>rule_id</td>
+<td>STRING</td>
+<td>Unique identifier</td>
+</tr>
+<tr>
+<td>object_id</td>
+<td>STRING</td>
+<td>FK to object_config</td>
+</tr>
+<tr>
+<td>rule_name</td>
+<td>STRING</td>
+<td>Human-readable rule name</td>
+</tr>
+<tr>
+<td>rule_expression</td>
+<td>STRING</td>
+<td>Spark SQL boolean (TRUE = row passes)</td>
+</tr>
+<tr>
+<td>action</td>
+<td>STRING</td>
+<td>warn / drop / quarantine / fail</td>
+</tr>
+<tr>
+<td>severity</td>
+<td>STRING</td>
+<td>informational / warning / error / critical</td>
+</tr>
+<tr>
+<td>active</td>
+<td>BOOLEAN</td>
+<td>Enable or disable this rule</td>
+</tr>
+</tbody>
+</table>
+<p>Rule expression examples:<br />
+- <code>customer_id IS NOT NULL</code><br />
+- <code>email IS NULL OR email LIKE '%@%'</code><br />
+- <code>order_amount &gt;= 0</code><br />
+- <code>TRY_CAST(created_date AS TIMESTAMP) IS NOT NULL</code></p>
+<h3 id="35-gold_model_config">3.5 gold_model_config</h3>
+<p>One row per Gold business model. Answers: <em>What business aggregations should run?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>gold_model_id</td>
+<td>STRING</td>
+<td>Unique identifier</td>
+</tr>
+<tr>
+<td>target_table</td>
+<td>STRING</td>
+<td>Fully qualified Gold table name</td>
+</tr>
+<tr>
+<td>definition_path</td>
+<td>STRING</td>
+<td>Path to SQL or Python model file</td>
+</tr>
+<tr>
+<td>refresh_type</td>
+<td>STRING</td>
+<td>incremental / materialized / full</td>
+</tr>
+<tr>
+<td>dependency_list</td>
+<td>STRING</td>
+<td>Comma-separated Silver table dependencies</td>
+</tr>
+<tr>
+<td>active</td>
+<td>BOOLEAN</td>
+<td>Enable or disable this model</td>
+</tr>
+</tbody>
+</table>
+<p>Gold models store business logic in version-controlled SQL or Python files.<br />
+The metadata only points to them; it does not embed the business logic.</p>
+<h3 id="36-pipeline_audit">3.6 pipeline_audit</h3>
+<p>One row per (run, object, layer). Answers: <em>What happened, when, and with how many records?</em></p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>run_id</td>
+<td>STRING</td>
+<td>Framework execution identifier</td>
+</tr>
+<tr>
+<td>object_id</td>
+<td>STRING</td>
+<td>Dataset being processed</td>
+</tr>
+<tr>
+<td>layer</td>
+<td>STRING</td>
+<td>landing / bronze / silver / gold</td>
+</tr>
+<tr>
+<td>start_time</td>
+<td>TIMESTAMP</td>
+<td>Execution start</td>
+</tr>
+<tr>
+<td>end_time</td>
+<td>TIMESTAMP</td>
+<td>Execution end</td>
+</tr>
+<tr>
+<td>rows_read</td>
+<td>BIGINT</td>
+<td>Input record count</td>
+</tr>
+<tr>
+<td>rows_written</td>
+<td>BIGINT</td>
+<td>Output record count</td>
+</tr>
+<tr>
+<td>rows_rejected</td>
+<td>BIGINT</td>
+<td>Quarantine record count</td>
+</tr>
+<tr>
+<td>status</td>
+<td>STRING</td>
+<td>STARTED / SUCCESS / FAILED / SKIPPED</td>
+</tr>
+<tr>
+<td>error_message</td>
+<td>STRING</td>
+<td>Failure details</td>
+</tr>
+<tr>
+<td>source_watermark</td>
+<td>STRING</td>
+<td>Last watermark value processed</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="4-metadata-relationships">4. Metadata Relationships</h2>
+<pre><code>source_config
+  One row per source system
+       │
+       │  1 : many
+       ▼
+object_config
+  One row per dataset / table / file feed
+       │
+       ├──── 1 : many ────► column_config
+       │                      One row per column
+       │
+       ├──── 1 : many ────► quality_rule_config
+       │                      One row per DQ rule
+       │
+       └──── execution ────► pipeline_audit
+                              One row per (run, object, layer)
+
+gold_model_config
+  One row per Gold model
+  References Silver tables in dependency_list
+</code></pre>
+<p><strong>Example hierarchy:</strong></p>
+<pre><code>Source: sales_files
+│
+├── Object: customers  (object_id = 101)
+│   ├── column: customer_id       (PK, BIGINT)
+│   ├── column: customer_name     (STRING, trim)
+│   ├── column: email             (STRING, PII)
+│   ├── column: created_date      (TIMESTAMP)
+│   ├── rule:   customer_id IS NOT NULL             → drop
+│   └── rule:   email IS NULL OR email LIKE '%@%'  → quarantine
+│
+├── Object: orders  (object_id = 102)
+│   ├── column: order_id          (PK, BIGINT)
+│   ├── column: customer_id       (BIGINT)
+│   ├── column: order_amount      (DOUBLE)
+│   └── rule:   order_amount &gt;= 0                  → fail
+│
+└── Object: products  (object_id = 103)
+    ├── column: product_id        (PK, BIGINT)
+    └── column: product_name      (STRING, trim)
+
+Gold Model: daily_sales
+  dependencies: silver.orders, silver.products
+  definition:   sql/gold/daily_sales.sql
+</code></pre>
+<hr />
+<h2 id="5-end-to-end-flow-diagram">5. End-to-End Flow Diagram</h2>
+<pre><code>┌──────────────────────────────────────────────────────────────┐
+│  1. SOURCE SYSTEMS                                           │
+│  Oracle │ SAP │ CSV/JSON │ Parquet │ Kafka │ API │ Salesforce│
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  2. METADATA CONFIGURATION  ◄── Populated by DE team        │
+│  source_config  ·  object_config  ·  column_config          │
+│  quality_rule_config  ·  gold_model_config                  │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  3. LAKEFLOW JOB  (Orchestration LEGO)                       │
+│  Task 1: Initialize run (run_id, STARTED audit)              │
+│  Task 2: Validate metadata (pre-flight checks)               │
+│  Task 3: Run Bronze + Silver pipeline                        │
+│  Task 4: Run Gold models                                     │
+│  Task 5: Reconcile counts + audit                            │
+│  Task 6: Notify on success or failure                        │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+                  ┌───── landing_required? ─────┐
+                  │                             │
+             YES (Files)                   NO (DB/Stream)
+                  │                             │
+                  ▼                             ▼
+        UC Volume / ADLS               JDBC / Lakeflow Connect
+        Vendor Drop Zone               Kafka / API Connector
+                  │                             │
+                  └──────────────┬──────────────┘
+                                 │
+                                 ▼
+                     AUTO LOADER  (cloudFiles)
+                     Incremental · Checkpointed · Schema-evolving
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│  4. BRONZE TABLES  (Raw LEGO)                                │
+│  Raw Delta · Append-only · Near-source fidelity             │
+│  + _ingestion_timestamp  _source_file  _object_id  _run_id  │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  5. SILVER  (Transformation LEGO + Quality LEGO)             │
+│  column_config  → rename, cast to target_type, trim         │
+│  quality_rule_config → evaluate SQL boolean expressions      │
+│  CDC / SCD2 when load_type = CDC                             │
+└───────────────────────┬──────────────────────┬───────────────┘
+                        │                      │
+                        ▼                      ▼
+             VALID SILVER RECORDS       QUARANTINE TABLES
+             Clean · Typed · Deduped    Rejected rows + violation tags
+                        │               _failed_rule · _failure_reason
+                        ▼
+┌──────────────────────────────────────────────────────────────┐
+│  6. GOLD MODELS  (Business LEGO)                             │
+│  gold_model_config points to SQL or Python files             │
+│  Facts · Dimensions · KPIs · Aggregations                   │
+└─────────────────────────────┬────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────┐
+│  7. CONSUMPTION                                              │
+│  Power BI · SQL Analytics · ML Feature Pipelines · AI Apps  │
+└──────────────────────────────────────────────────────────────┘
+
+Audit spans every layer:
+pipeline_audit ──► Metrics dashboards ──► Alerts ──► Notifications
+</code></pre>
+<hr />
+<h2 id="6-execution-flow-step-by-step">6. Execution Flow — Step by Step</h2>
+<h3 id="step-a-initialize-execution">Step A: Initialize Execution</h3>
+<ul>
+<li>Generate a unique <code>run_id</code> (e.g. <code>RUN-20260714-080001</code>)</li>
+<li>Record start timestamp</li>
+<li>Confirm destination catalogs and schemas are accessible</li>
+<li>Write STARTED audit row to <code>pipeline_audit</code></li>
+</ul>
+<h3 id="step-b-validate-metadata">Step B: Validate Metadata</h3>
+<ul>
+<li>Every active object has an active source</li>
+<li>Incremental objects have an <code>incremental_column</code></li>
+<li>CDC objects have a <code>primary_key</code> and sequence column</li>
+<li>Primary key columns exist in <code>column_config</code></li>
+<li>Quality rule expressions are syntactically valid</li>
+<li>Gold model dependencies exist as Silver tables</li>
+<li>No two active columns map to the same target name</li>
+<li>Secrets are referenced, not stored as plaintext</li>
+</ul>
+<p><strong>Fail early. Never move data against invalid configuration.</strong></p>
+<h3 id="step-c-discover-active-objects">Step C: Discover Active Objects</h3>
+<ul>
+<li><code>SELECT * FROM object_config WHERE active = true ORDER BY execution_order</code></li>
+<li>Each returned row is a unit of work</li>
+<li>Rows sharing a <code>parallel_group</code> can run concurrently</li>
+</ul>
+<h3 id="step-d-ingest-to-bronze">Step D: Ingest to Bronze</h3>
+<p>For each active object:<br />
+- Read <code>source_config.landing_required</code><br />
+- If <code>true</code>: read files from UC Volume using Auto Loader<br />
+- If <code>false</code>: read directly from source via JDBC or connector<br />
+- Append to Bronze Delta table<br />
+- Add: <code>_ingestion_timestamp</code>, <code>_source_file</code>, <code>_object_id</code>, <code>_run_id</code><br />
+- Write BRONZE audit row: rows read, rows written, status</p>
+<h3 id="step-e-standardize-to-silver">Step E: Standardize to Silver</h3>
+<p>For each Bronze table:<br />
+- Load <code>column_config</code> for this object<br />
+- Rename source columns → target column names<br />
+- Cast to target types using <code>TRY_CAST</code> (ANSI-safe, no failures)<br />
+- Trim whitespace where <code>trim_indicator = true</code><br />
+- Deduplicate on <code>primary_key</code><br />
+- Evaluate quality rules, split valid/quarantine<br />
+- Write SILVER audit row</p>
+<h3 id="step-f-build-gold-models">Step F: Build Gold Models</h3>
+<ul>
+<li>Load <code>gold_model_config WHERE active = true</code></li>
+<li>Resolve execution order from <code>dependency_list</code></li>
+<li>Run each model's SQL or Python definition file</li>
+<li>Write GOLD audit row: rows written, duration, status</li>
+</ul>
+<hr />
+<h2 id="7-load-strategies">7. Load Strategies</h2>
+<table>
+<thead>
+<tr>
+<th>Load Type</th>
+<th>When to Use</th>
+<th>Required Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>FULL</td>
+<td>Small reference tables, complete snapshots</td>
+<td>None</td>
+</tr>
+<tr>
+<td>INCREMENTAL</td>
+<td>Tables with a reliable timestamp or ID</td>
+<td><code>incremental_column</code></td>
+</tr>
+<tr>
+<td>CDC</td>
+<td>Change data capture from transactional sources</td>
+<td><code>primary_key</code> + sequence column</td>
+</tr>
+<tr>
+<td>SNAPSHOT</td>
+<td>Detect changes by comparing current vs previous</td>
+<td><code>primary_key</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="8-lakeflow-jobs-vs-lakeflow-spark-declarative-pipelines">8. Lakeflow Jobs vs Lakeflow Spark Declarative Pipelines</h2>
+<p>The framework uses both Databricks products in complementary roles.</p>
+<table>
+<thead>
+<tr>
+<th>Responsibility</th>
+<th>Lakeflow Jobs</th>
+<th>Lakeflow SDP</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Procedural task sequencing</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Scheduling and retries</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Notifications and alerting</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Parallel task coordination</td>
+<td>✅</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Declarative dataset dependencies</td>
+<td>—</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Streaming tables</td>
+<td>—</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Materialized views</td>
+<td>—</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Built-in DQ expectations</td>
+<td>—</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>Auto CDC and SCD</td>
+<td>—</td>
+<td>✅</td>
+</tr>
+</tbody>
+</table>
+<p>Lakeflow Jobs handles the procedural outer loop.<br />
+Lakeflow SDP handles declared dataset relationships and incremental processing inside the pipeline.</p>
+<hr />
+<h2 id="9-directory-structure">9. Directory Structure</h2>
+<pre><code>databricks-metadata-framework/
+│
+├── databricks.yml                          ← Declarative Asset Bundle root
+│
+├── resources/
+│   ├── lakeflow_pipeline.yml               ← SDP pipeline declaration
+│   └── lakeflow_job.yml                    ← Lakeflow Job: tasks, schedule, compute
+│
+├── src/
+│   │
+│   ├── pipeline/
+│   │   ├── pipeline.py                     ← Entry point: reads metadata, calls generators
+│   │   ├── bronze_generator.py             ← Ingests source to Bronze via metadata config
+│   │   ├── silver_generator.py             ← Applies column_config + quality rules to Silver
+│   │   └── quality_engine.py              ← Evaluates quality_rule_config expressions
+│   │
+│   ├── orchestration/
+│   │   ├── initialize_run.py               ← Generates run_id, writes STARTED audit
+│   │   ├── validate_metadata.py            ← Pre-flight checks across all config tables
+│   │   ├── audit_reconciliation.py         ← Writes final audit rows with metrics
+│   │   └── notify.py                       ← Alerts on failure or data anomalies
+│   │
+│   ├── metadata/
+│   │   ├── metadata_reader.py              ← get_active_objects(), get_column_rules(), etc.
+│   │   └── schemas.py                      ← IngestionSpec dataclass (neutral contract)
+│   │
+│   └── gold/
+│       └── daily_sales.sql                 ← Example Gold model SQL definition
+│
+├── sql/
+│   ├── migrations/
+│   │   ├── V001__create_source_config.sql
+│   │   ├── V002__create_object_config.sql
+│   │   ├── V003__create_column_config.sql
+│   │   ├── V004__create_quality_rule_config.sql
+│   │   ├── V005__create_gold_model_config.sql
+│   │   └── V006__create_pipeline_audit.sql
+│   │
+│   └── seeds/
+│       ├── DEV__seed_source_config.sql
+│       ├── DEV__seed_object_config.sql
+│       ├── DEV__seed_column_config.sql
+│       ├── QA__seed_source_config.sql
+│       └── PROD__seed_source_config.sql
+│
+└── tests/
+    ├── test_metadata_validation.py
+    ├── test_bronze_generator.py
+    ├── test_silver_generator.py
+    ├── test_quality_engine.py
+    └── test_gold_models.py
+</code></pre>
+<hr />
+<h2 id="10-file-descriptions">10. File Descriptions</h2>
+<h3 id="databricksyml"><code>databricks.yml</code></h3>
+<p>Declarative Asset Bundle root. Defines project name, workspace targets (dev, QA, prod),<br />
+and artifact paths. The entire framework deploys with <code>databricks bundle deploy</code>.</p>
+<h3 id="resourceslakeflow_pipelineyml"><code>resources/lakeflow_pipeline.yml</code></h3>
+<p>Declares the Lakeflow Spark Declarative Pipeline. Defines name, catalog target,<br />
+libraries (pipeline.py), and mode (development vs production).</p>
+<h3 id="resourceslakeflow_jobyml"><code>resources/lakeflow_job.yml</code></h3>
+<p>Defines the Lakeflow Job with all six tasks in execution order:<br />
+initialize → validate → pipeline → gold → reconcile → notify.<br />
+Includes schedule, retry policy, compute config, and notification settings.</p>
+<h3 id="srcpipelinepipelinepy"><code>src/pipeline/pipeline.py</code></h3>
+<p>Main entry point for pipeline execution. Reads source_config and object_config.<br />
+Calls bronze_generator and silver_generator for each active object.<br />
+Passes the populated IngestionSpec to each generator function.</p>
+<h3 id="srcpipelinebronze_generatorpy"><code>src/pipeline/bronze_generator.py</code></h3>
+<p>Creates or updates Bronze Delta tables.<br />
+- File sources: uses Auto Loader (cloudFiles) — incremental, checkpointed, schema-evolving<br />
+- DB sources: uses JDBC or the appropriate connector<br />
+Adds standard ingestion metadata columns.<br />
+Handles FULL and INCREMENTAL append modes.</p>
+<h3 id="srcpipelinesilver_generatorpy"><code>src/pipeline/silver_generator.py</code></h3>
+<p>Reads Bronze data for a given object.<br />
+Applies column_config: rename, cast with TRY_CAST, trim whitespace.<br />
+Deduplicates on primary_key.<br />
+Calls quality_engine to split valid/quarantine.<br />
+Handles CDC and SCD2 when load_type = CDC.<br />
+Writes to Silver Delta table.</p>
+<h3 id="srcpipelinequality_enginepy"><code>src/pipeline/quality_engine.py</code></h3>
+<p>Evaluates quality_rule_config rows as Spark SQL boolean expressions.<br />
+Splits the DataFrame into a valid set and a quarantine set.<br />
+Tags quarantine rows with: _failed_rule, _failure_reason, _run_id, _object_id.<br />
+Supports warn, drop, quarantine, and fail actions.</p>
+<h3 id="srcorchestrationinitialize_runpy"><code>src/orchestration/initialize_run.py</code></h3>
+<p>Generates a unique run_id at the start of every Lakeflow Job execution.<br />
+Stores start timestamp. Confirms catalog and schema accessibility.<br />
+Writes the initial STARTED record to pipeline_audit.</p>
+<h3 id="srcorchestrationvalidate_metadatapy"><code>src/orchestration/validate_metadata.py</code></h3>
+<p>Pre-flight validation across all config tables.<br />
+Checks FK integrity, required fields, rule syntax, and configuration consistency.<br />
+Raises a descriptive error if any critical check fails.<br />
+Prevents bad configuration from reaching the data layer.</p>
+<h3 id="srcorchestrationaudit_reconciliationpy"><code>src/orchestration/audit_reconciliation.py</code></h3>
+<p>Called at the end of each object's processing.<br />
+Calculates rows read, rows written, rows rejected, and duration.<br />
+Writes the completed audit row to pipeline_audit with final status.<br />
+Also executes the run-level reconciliation step.</p>
+<h3 id="srcorchestrationnotifypy"><code>src/orchestration/notify.py</code></h3>
+<p>Sends alerts based on run outcomes.<br />
+Triggers when: a critical object fails, rejected rows exceed threshold,<br />
+freshness SLA is breached, or schema drift introduces an unexpected column.</p>
+<h3 id="srcmetadatametadata_readerpy"><code>src/metadata/metadata_reader.py</code></h3>
+<p>Central metadata access layer.<br />
+Provides: get_active_objects(), get_column_rules(object_id),<br />
+get_quality_rules(object_id), get_gold_models().<br />
+Abstracts all SQL queries from the rest of the framework.<br />
+Caches results per run to avoid repeated queries.</p>
+<h3 id="srcmetadataschemaspy"><code>src/metadata/schemas.py</code></h3>
+<p>Defines the IngestionSpec dataclass.<br />
+This is the neutral, generation-agnostic internal contract<br />
+that flows through all stage functions.<br />
+The metadata reader populates IngestionSpec objects.<br />
+The generators consume them.<br />
+This contract is what makes the framework portable across metadata generations.</p>
+<h3 id="sqlmigrationsv00n__sql"><code>sql/migrations/V00N__*.sql</code></h3>
+<p>Versioned DDL scripts for each metadata table.<br />
+Run in sequence to create the framework schema in any environment.<br />
+Each script uses CREATE TABLE IF NOT EXISTS (idempotent).</p>
+<h3 id="sqlseedsenv__seed_sql"><code>sql/seeds/ENV__seed_*.sql</code></h3>
+<p>Environment-specific seed data.<br />
+DEV: lightweight sample datasets for development and testing.<br />
+QA: production-like shapes without real data.<br />
+PROD: approved bootstrap entries only.</p>
+<h3 id="teststest_py"><code>tests/test_*.py</code></h3>
+<p>pytest-compatible unit and integration tests.<br />
+Cover metadata validation logic, column mapping transformations,<br />
+quality rule evaluation, and Gold model output shapes.<br />
+Run in CI before any bundle deployment.</p>
+<hr />
+<h2 id="11-adding-a-new-dataset">11. Adding a New Dataset</h2>
+<p>To add a new source object after initial deployment:</p>
+<pre><code class="language-sql">-- 1. Add to object_config
+INSERT INTO framework.object_config VALUES
+(104, 1, 'suppliers', '/Volumes/raw/sales/suppliers',
+ 'csv', 'incremental', 'supplier_id', 'updated_timestamp',
+ 'bronze.suppliers', 'silver.suppliers', TRUE, 40, 'sales');
+
+-- 2. Add column definitions
+INSERT INTO framework.column_config VALUES
+(104, 'SUPPLIER_ID',   'supplier_id',   'BIGINT', FALSE, TRUE,  1, FALSE, NULL,   TRUE),
+(104, 'SUPPLIER_NAME', 'supplier_name', 'STRING', FALSE, FALSE, 2, TRUE,  NULL,   TRUE),
+(104, 'COUNTRY',       'country',       'STRING', TRUE,  FALSE, 3, TRUE,  NULL,   TRUE);
+
+-- 3. Add quality rules
+INSERT INTO framework.quality_rule_config VALUES
+(10, 104, 'supplier_id_required', 'supplier_id IS NOT NULL', 'drop', 'error', TRUE);
+</code></pre>
+<p>The next job run automatically discovers and processes the new object.<br />
+<strong>No code changes. No new notebook. No new job task. Configuration only.</strong></p>
+<hr />
+<h2 id="12-scion-as-the-proof-of-concept">12. SCION as the Proof of Concept</h2>
+<p>SCION Data Platform (Surgery Commercial Innovation on Next-Generation Data Platform)<br />
+is the first project to adopt this framework.</p>
+<h3 id="what-scion-contributes-to-the-poc">What SCION contributes to the POC</h3>
+<ul>
+<li>Multiple source types: file-based (MBOX), database (Oracle / Teradata), enterprise (SAP)</li>
+<li>Pre-existing IngestionSpec abstraction and stage functions</li>
+<li>Working Auto Loader Bronze implementation</li>
+<li>Active development team with real surgery commercial datasets</li>
+</ul>
+<h3 id="what-the-poc-validates">What the POC validates</h3>
+<ul>
+<li>Six-table metadata model is sufficient to drive a full Bronze-Silver-Gold pipeline</li>
+<li>The IngestionSpec contract bridges existing code to the new metadata model</li>
+<li>The LEGO architecture scales from one dataset to dozens</li>
+<li>Lakeflow Jobs can coordinate the reusable stage engine</li>
+</ul>
+<h3 id="what-the-poc-produces-for-the-framework">What the POC produces for the framework</h3>
+<ul>
+<li>Proven migration pattern from legacy metadata models to MDEF</li>
+<li>Reference implementation for new teams adopting the framework</li>
+<li>Template seed data covering file and database source patterns</li>
+</ul>
+<hr />
+<h2 id="13-next-steps">13. Next Steps</h2>
+<h3 id="phase-1-metadata-foundation-immediate">Phase 1 — Metadata Foundation (Immediate)</h3>
+<ol>
+<li>Create the six metadata tables via versioned SQL migration scripts</li>
+<li>Populate DEV seed data for one file source and one database source</li>
+<li>Implement <code>metadata_reader.py</code> and <code>schemas.py</code> (IngestionSpec)</li>
+<li>Validate that <code>get_active_objects()</code> returns correct IngestionSpec objects</li>
+</ol>
+<h3 id="phase-2-stage-implementation-short-term">Phase 2 — Stage Implementation (Short-term)</h3>
+<ol start="5">
+<li>Implement <code>bronze_generator.py</code> using Auto Loader against metadata config</li>
+<li>Implement <code>silver_generator.py</code> using column_config mappings</li>
+<li>Implement <code>quality_engine.py</code> using quality_rule_config rules</li>
+<li>Wire <code>pipeline_audit</code> writes via <code>audit_reconciliation.py</code></li>
+</ol>
+<h3 id="phase-4-orchestration-medium-term">Phase 4 — Orchestration (Medium-term)</h3>
+<ol start="9">
+<li>Add execution_order and parallel_group support to the runner</li>
+<li>Wire <code>lakeflow_job.yml</code> with all six tasks</li>
+<li>Deploy to QA, run against production-like data shapes</li>
+</ol>
+<h3 id="phase-5-execution-engine-decision-design">Phase 5 — Execution Engine Decision (Design)</h3>
+<ol start="12">
+<li>Decide: stay on plain PySpark jobs (Option A) or move pipeline execution<br />
+    to native Lakeflow Spark Declarative Pipelines (Option B)</li>
+<li>Document the decision with the design team</li>
+</ol>
+<h3 id="phase-6-developer-experience">Phase 6 — Developer Experience</h3>
+<ol start="14">
+<li>Finalize provisioning guide for new teams</li>
+<li>Publish seed templates and onboarding checklist</li>
+</ol>
+<hr />
+<h2 id="summary">Summary</h2>
+<pre><code>One framework.
+Six metadata tables.
+Any source. Any catalog. Any team.
+
+Onboarding a new dataset = INSERT rows.
+Not a new pipeline.
+</code></pre>
+<p>This is the design. SCION proves it works.</p>
+    </article>
+  </div>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+    document.querySelectorAll('pre code.language-mermaid').forEach((code) => {
+      const pre = code.closest('pre');
+      const div = document.createElement('div');
+      div.className = 'mermaid';
+      div.textContent = code.textContent;
+      pre.replaceWith(div);
+    });
+    mermaid.run({ querySelector: '.mermaid' });
+  </script>
+</body>
+</html>

@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SCION ELT Config Layer - Beginner Guide</title>
+  <style>
+    body { font-family: Segoe UI, Tahoma, Arial, sans-serif; margin: 0; background: #f6f8fa; color: #1f2937; }
+    .wrap { max-width: 1000px; margin: 30px auto; padding: 0 18px; }
+    article { background: #fff; border: 1px solid #d0d7de; border-radius: 10px; padding: 26px; }
+    h1, h2, h3, h4 { color: #0f3d5e; line-height: 1.3; }
+    h1 { border-bottom: 2px solid #d8dee4; padding-bottom: 8px; }
+    code { background: #f0f4f8; border: 1px solid #d8dee4; border-radius: 5px; padding: 1px 5px; }
+    pre { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px; overflow: auto; }
+    pre code { background: transparent; border: none; color: inherit; padding: 0; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; }
+    th, td { border: 1px solid #d0d7de; padding: 8px; vertical-align: top; }
+    th { background: #f3f4f6; text-align: left; }
+    .meta { color: #6b7280; font-size: 0.92rem; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <article>
+      <div class="meta">Generated from Markdown on 2026-07-14</div>
+      <h1 id="elt-config-layer-beginner-guide">ELT Config Layer - Beginner Guide</h1>
+<h2 id="why-this-guide-exists">Why this guide exists</h2>
+<p>You asked for a beginner explanation of each Lego box in the Config/Metadata layer, plus clarification on:<br />
+- Why we would design DDLs if we do not know every user's source data<br />
+- What "YAML schema for metadata objects" means</p>
+<p>This guide explains all of that in simple terms.</p>
+<hr />
+<h2 id="1-what-does-lego-block-mean-in-a-data-framework">1) What does "Lego block" mean in a data framework?</h2>
+<p>A Lego block is a reusable component with one clear responsibility.</p>
+<p>A component is a good Lego block when it is:<br />
+- Modular: it does one job<br />
+- Replaceable: can be swapped without rewriting everything<br />
+- Reusable: can be used by many teams/datasets<br />
+- Contract-based: accepts/produces a known shape of metadata</p>
+<p>The goal is to avoid hardcoded, one-off pipelines.</p>
+<hr />
+<h2 id="2-the-configmetadata-layer-flow-in-plain-english">2) The Config/Metadata layer flow in plain English</h2>
+<p>Think of the flow as:<br />
+1. Team requests onboarding for a new source/dataset<br />
+2. Team selects connector type<br />
+3. Team fills metadata objects<br />
+4. Framework validates metadata quality/completeness<br />
+5. Approved metadata is published as one canonical runtime spec<br />
+6. Runtime spec is stored and made available to the execution engine</p>
+<p>This means config drives execution, not custom code per source.</p>
+<hr />
+<h2 id="3-explain-each-lego-box-beginner-version">3) Explain each Lego box (beginner version)</h2>
+<h3 id="box-a-source-onboarding-request">Box A - Source Onboarding Request</h3>
+<p>What it is:<br />
+- The start of the process when someone wants to ingest data.</p>
+<p>What it does:<br />
+- Captures basic request context (who, what data, business purpose).</p>
+<p>Purpose:<br />
+- Creates a formal starting point instead of ad-hoc ingestion.</p>
+<p>Why it is a Lego block:<br />
+- Reusable intake step for every new dataset.</p>
+<hr />
+<h3 id="box-b-choose-native-connector-type">Box B - Choose Native Connector Type</h3>
+<p>What it is:<br />
+- Selection of how Databricks will access the source.</p>
+<p>What it does:<br />
+- Identifies connector path (Auto Loader, JDBC, Lakeflow Connect, COPY INTO, etc.).</p>
+<p>Purpose:<br />
+- Makes source access explicit and standardized.</p>
+<p>Why it is a Lego block:<br />
+- Connector choice is independent of business logic and can be swapped.</p>
+<hr />
+<h3 id="box-c-connector_profile">Box C - connector_profile</h3>
+<p>What it is:<br />
+- Metadata object describing connection method and auth references.</p>
+<p>What it does:<br />
+- Stores connector type, endpoint/host reference, secret references, and connector options.</p>
+<p>Purpose:<br />
+- Separates connectivity setup from dataset-specific settings.</p>
+<p>Why it is a Lego block:<br />
+- Many datasets can reuse one connector profile.</p>
+<hr />
+<h3 id="box-d-dataset_contract">Box D - dataset_contract</h3>
+<p>What it is:<br />
+- Canonical metadata record for one dataset.</p>
+<p>What it does:<br />
+- Declares source object, load type, target bronze destination, schema mode, active status.</p>
+<p>Purpose:<br />
+- Provides one stable contract for runtime.</p>
+<p>Why it is a Lego block:<br />
+- Everything downstream can run from this one standard shape.</p>
+<hr />
+<h3 id="box-e-ingestion_policy">Box E - ingestion_policy</h3>
+<p>What it is:<br />
+- Metadata object for ingestion behavior.</p>
+<p>What it does:<br />
+- Defines full/incremental/cdc behavior, watermark columns, checkpoint policy, retries.</p>
+<p>Purpose:<br />
+- Keeps ingestion behavior configurable and consistent.</p>
+<p>Why it is a Lego block:<br />
+- You can change load behavior without changing pipeline code.</p>
+<hr />
+<h3 id="box-f-quality_profile">Box F - quality_profile</h3>
+<p>What it is:<br />
+- Metadata object for data quality rulesets.</p>
+<p>What it does:<br />
+- Points to rule packs (for example iDEE/GE rules) and expected thresholds.</p>
+<p>Purpose:<br />
+- Decouples rule authoring from pipeline mechanics.</p>
+<p>Why it is a Lego block:<br />
+- DQ engine can evolve without rewriting ingestion metadata.</p>
+<hr />
+<h3 id="box-g-transform_profile">Box G - transform_profile</h3>
+<p>What it is:<br />
+- Metadata object for downstream transformations.</p>
+<p>What it does:<br />
+- Defines standard transforms or references to Silver/Gold logic profiles.</p>
+<p>Purpose:<br />
+- Keeps transform behavior declarative where possible.</p>
+<p>Why it is a Lego block:<br />
+- Reusable transform patterns for many datasets.</p>
+<hr />
+<h3 id="box-h-governance_profile">Box H - governance_profile</h3>
+<p>What it is:<br />
+- Metadata object for ownership, compliance, and access controls.</p>
+<p>What it does:<br />
+- Stores domain, owning team, steward, sensitivity/classification, approval status, SLA.</p>
+<p>Purpose:<br />
+- Embeds governance into onboarding from day one.</p>
+<p>Why it is a Lego block:<br />
+- Governance is reusable policy metadata, not hardcoded per pipeline.</p>
+<hr />
+<h3 id="box-i-validate-metadata-contract">Box I - Validate Metadata Contract</h3>
+<p>What it is:<br />
+- Validation gate before activation.</p>
+<p>What it does:<br />
+- Checks required fields, valid enums, reference integrity, and policy completeness.</p>
+<p>Purpose:<br />
+- Prevents broken/incomplete metadata from reaching runtime.</p>
+<p>Why it is a Lego block:<br />
+- Same checks apply to all datasets; one validation component serves all.</p>
+<hr />
+<h3 id="box-j-approved-decision">Box J - Approved? (Decision)</h3>
+<p>What it is:<br />
+- Workflow gate.</p>
+<p>What it does:<br />
+- Routes records to either correction path or publication path.</p>
+<p>Purpose:<br />
+- Enforces quality and governance before execution.</p>
+<p>Why it is a Lego block:<br />
+- Standard approval control usable across teams.</p>
+<hr />
+<h3 id="box-k-publish-canonical-dataset-spec">Box K - Publish Canonical Dataset Spec</h3>
+<p>What it is:<br />
+- Final, normalized runtime metadata output.</p>
+<p>What it does:<br />
+- Produces one canonical specification used by pipeline engine.</p>
+<p>Purpose:<br />
+- Ensures runtime only reads one unified contract, regardless of input source format.</p>
+<p>Why it is a Lego block:<br />
+- Adapters can change, but runtime contract remains stable.</p>
+<hr />
+<h3 id="box-l-register-in-delta-metadata-registry">Box L - Register in Delta Metadata Registry</h3>
+<p>What it is:<br />
+- Durable storage of active metadata records in Delta tables.</p>
+<p>What it does:<br />
+- Tracks current and historical versions of metadata objects.</p>
+<p>Purpose:<br />
+- Supports auditing, discoverability, and reproducibility.</p>
+<p>Why it is a Lego block:<br />
+- Standard metadata registry works for any project/domain.</p>
+<hr />
+<h3 id="box-m-export-runtime-spec-for-pipeline-engine">Box M - Export Runtime Spec for Pipeline Engine</h3>
+<p>What it is:<br />
+- Final handoff artifact from config layer to execution layer.</p>
+<p>What it does:<br />
+- Delivers validated canonical spec to ingestion/transform jobs.</p>
+<p>Purpose:<br />
+- Creates clear boundary: config layer designs intent, execution layer runs intent.</p>
+<p>Why it is a Lego block:<br />
+- Reusable interface between control plane and data plane.</p>
+<hr />
+<h2 id="4-native-connector-boxes-what-they-mean">4) Native connector boxes (what they mean)</h2>
+<h3 id="auto-loader-for-files">Auto Loader for files</h3>
+<ul>
+<li>Best for cloud file ingestion with incremental discovery and schema evolution.</li>
+</ul>
+<h3 id="jdbc-sql-sources">JDBC / SQL sources</h3>
+<ul>
+<li>Pull from relational systems (Oracle, SQL Server, etc.) using query/table access.</li>
+</ul>
+<h3 id="lakeflow-connect-sources">Lakeflow Connect sources</h3>
+<ul>
+<li>Managed connectors for specific platforms where available in Databricks.</li>
+</ul>
+<h3 id="copy-into-external-locations">COPY INTO / external locations</h3>
+<ul>
+<li>Useful for file-driven ingestion patterns with controlled loads.</li>
+</ul>
+<p>All of these are connection methods. They should be represented in metadata, not hardcoded.</p>
+<hr />
+<h2 id="5-your-ddl-question-important">5) Your DDL question (important)</h2>
+<p>Question:<br />
+"Wouldn't users draft DDLs? Why would we design DDLs if we do not know their source data?"</p>
+<p>Correct answer:<br />
+- Yes, users know their source data best.<br />
+- But there are two different DDL categories:</p>
+<p>Category A - Framework metadata DDL (we design this)<br />
+- These are tables like connector_profile, dataset_contract, governance_profile.<br />
+- They define how the framework stores control metadata.<br />
+- This is platform architecture and should be standardized by framework owners.</p>
+<p>Category B - Source/business table DDL (users/domain teams own this)<br />
+- These are source schemas, business attributes, domain-specific targets.<br />
+- Teams provide these details through metadata records and contracts.</p>
+<p>So we are not guessing user source schema.<br />
+We are standardizing the metadata control plane so all teams can onboard consistently.</p>
+<hr />
+<h2 id="6-what-is-yaml-schema-for-the-6-metadata-objects">6) What is "YAML schema for the 6 metadata objects"?</h2>
+<p>A YAML schema is a structured template and rule definition for config files.</p>
+<p>It answers:<br />
+- Which fields are required<br />
+- Which values are allowed<br />
+- Data types for each field<br />
+- Validation rules and defaults</p>
+<p>It is not source data itself.<br />
+It is a contract for how metadata must be written.</p>
+<p>Simple example idea:<br />
+- connector_profile must include connector_type and auth_ref<br />
+- dataset_contract must include dataset_id, source_object, load_type, target_table<br />
+- governance_profile must include owner_team and classification</p>
+<p>Why use YAML schema:<br />
+- Easier onboarding<br />
+- Better validation<br />
+- Less runtime failure<br />
+- More consistent metadata across teams</p>
+<hr />
+<h2 id="7-practical-split-of-responsibilities">7) Practical split of responsibilities</h2>
+<p>Framework team owns:<br />
+- Metadata object design<br />
+- Metadata DDLs<br />
+- Validation logic<br />
+- Canonical runtime contract</p>
+<p>Domain/user teams own:<br />
+- Their source mappings<br />
+- Their business attributes<br />
+- Their DQ/transform needs<br />
+- Their onboarding records in the framework metadata</p>
+<hr />
+<h2 id="8-one-line-explanation-you-can-reuse">8) One-line explanation you can reuse</h2>
+<p>"The Config/Metadata layer is the control plane: it standardizes how teams describe data sources and policies, validates that metadata, and publishes one canonical runtime spec that reusable pipeline Lego blocks execute."</p>
+<hr />
+<h2 id="9-suggested-next-step-for-implementation">9) Suggested next step (for implementation)</h2>
+<p>Start with only three metadata objects first (MVP):<br />
+1. connector_profile<br />
+2. dataset_contract<br />
+3. governance_profile</p>
+<p>Then add:<br />
+4. ingestion_policy<br />
+5. quality_profile<br />
+6. transform_profile</p>
+<p>This keeps phase 1 simple while preserving the full target architecture.</p>
+    </article>
+  </div>
+</body>
+</html>
