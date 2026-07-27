@@ -1,0 +1,177 @@
+# iDEE for Databricks Sync - AI-readable compressed transcript
+
+Source meeting: iDEE for Databricks Sync
+Date/time: Today, 3:15 PM-3:45 PM
+Organizer: Yagnik, Yash
+Transcript available: yes
+Format note: This is a compact, AI-readable extraction of the meeting content, optimized for low token cost. It is not a verbatim transcript dump. It preserves the decisions, corrections, rationale, dependencies, action items, and technical definitions discussed.
+
+## Participants referenced in transcript
+- Italo Duran
+- Ojoma Ali
+- Yash Yagnik
+
+## One-line meeting purpose
+Align the iDEE-for-Databricks framework/application folder structure, clarify what belongs in framework vs application code, reset focus away from asset bundles/CICD, and define the next demo around a minimal working YAML config parser/validator flow.
+
+## Core guidance / decisions
+1. Work must proceed one complete unit at a time. Avoid building many disconnected pieces at once.
+2. Current priority is not Databricks asset bundles, CICD, or repo deployment. Those come later once repos/AD groups are ready.
+3. Immediate priority is a minimal working configuration flow:
+   - Create/populate a simple sample YAML config for one pipeline.
+   - Validate it against the expected schema.
+   - Parse it through framework code.
+   - Produce clear output showing what metadata/table actions would happen.
+   - Add PyTest/unit tests for framework code.
+4. Keep framework and application concerns separate.
+5. The framework is responsible for reusable logic: templates, schema validation, config parsing, orchestration/main scripts, metadata DDL/setup, and unit tests.
+6. The application folder is for a downstream application/user example: filled config files, sample application DDL, sample data, and simple test pipeline artifacts.
+7. A YAML template belongs in the framework, likely under a templates folder.
+8. A copied and filled YAML config is no longer called a template and belongs in the application folder.
+9. Config parsing belongs in the framework, not in the application folder.
+10. Application DDL belongs in the application folder because it is app/Jira-story/requirement specific.
+11. Metadata DDL belongs with framework setup because it is framework-owned and run as part of environment/setup.
+12. Unit tests should primarily be for framework code. Application sample data/pipelines may have simple validation, but the priority is framework PyTest coverage.
+13. Use consistent folder naming, file naming, casing, and terminology from the beginning.
+14. Do not use vague/random names such as lightweight, root, rootmaster, dry run test, or mixed naming styles in production-oriented folders.
+15. Maintain a clean shared workspace. Put brainstorming or experimental ideas elsewhere rather than mixing them into the working folder.
+16. Data quality, asset bundles, migrations, incremental load logic, append logic, and complex ingestion patterns are later stages after the first minimal skeleton works.
+17. The first target demo should be intentionally simple: a tiny pipeline, one source, one target, about five columns, full refresh/truncate-and-load style.
+18. Once the simple full-refresh path works, then add append, then incremental/delta handling, then more complex features.
+19. The demo to Rashid should not happen before a review/demo with Ojoma after she returns, except for an informal status update in one-on-one context.
+20. For status updates to Rashid, frame progress as step-by-step, quality-first, with clear separation between framework engineer and downstream application engineer perspectives.
+
+## Recommended folder model
+Parent folder:
+- iDEE for Databricks
+
+Under parent:
+- iDEE_DBX_framework
+  - templates/
+    - YAML template file(s)
+  - schema/
+    - YAML/JSON schema defining expected config structure/version
+  - src/
+    - config validator
+    - config parser
+    - orchestration/main command
+    - metadata table loader logic
+  - ddl/
+    - framework metadata DDL/setup scripts
+  - tests/
+    - PyTest unit tests for validator/parser/orchestration
+  - README.md
+  - quickstart.md, if useful and curated
+
+- iDEE_DBX_app
+  - config/
+    - filled sample YAML config for the simple pipeline
+  - ddl/
+    - application-specific source/target table DDL for sample pipeline
+  - data/
+    - minimal sample data, if needed
+  - scripts/notebooks/
+    - notebook or command showing how application user calls framework
+  - output/logs/
+    - optional sample output from validation/parse/load dry run
+
+## What belongs where
+Framework-owned:
+- YAML template
+- Schema/version definition
+- Config validator
+- Config parser
+- Main/orchestrator command
+- Metadata table DDL/setup
+- PyTest unit tests
+- Framework README/quickstart
+- Reusable logic for all application teams
+
+Application-owned:
+- Filled YAML config copied from the framework template
+- Simple pipeline example config
+- Application/source/target DDL
+- Sample data
+- Application-specific demonstration notebook/script
+- Outputs/logs from running the sample
+
+Not now / later:
+- Databricks asset bundles
+- CICD
+- SonarQube setup details
+- Repo/pull request workflow, until repos/AD groups are available
+- Data quality rules
+- Great Expectations/native DQ options
+- Migration tracking table
+- Complex ingestion patterns
+- Incremental load logic
+- Application-specific production pipelines beyond the hello-world sample
+
+## Minimal demo path
+1. Start with a filled sample YAML config for one simple pipeline.
+2. Run framework validator against the config.
+3. Validator confirms config matches expected schema/version.
+4. Run framework parser against the validated config.
+5. Parser produces metadata output or insert/DML-like output for target metadata tables.
+6. Show logs/status messages such as:
+   - loading started
+   - config version detected
+   - config schema validation passed
+   - parser completed
+   - metadata table action list generated
+   - load complete / output ready
+7. Optional next pass: actually load metadata tables after DDL exists and is tested.
+8. Demo from a Databricks cell/notebook by calling the framework command against the YAML file.
+
+## Technical definitions clarified
+- Template YAML: Blank/reusable framework-owned file that users copy.
+- Filled YAML/config: Application-owned copy populated for a specific sample/application pipeline.
+- Config validator: Framework process that checks whether the filled config conforms to the expected schema.
+- Config parser: Framework process that reads valid config and translates it into metadata actions/SQL/inserts/load instructions.
+- Unit tests/PyTest: Automated tests for Python framework classes/functions/modules to prevent regressions.
+- Full refresh / truncate-and-load: First simple ingestion pattern; delete/drop existing target data and reload all source data.
+- Append: Add all source rows onto target; not the same as incremental.
+- Incremental/delta: Load only what exists in source and not already in target, based on delta logic.
+- Hello-world pipeline: Ultra-simple sample pipeline that proves the framework works without external complexity.
+
+## Action items
+- Italo: Clean current folders and remove unrelated/experimental files from the working structure.
+- Italo: Rename folders using DBX-oriented names to avoid conflict with existing iDEE names.
+- Italo: Create parent folder `iDEE for Databricks` and put framework/app folders underneath it.
+- Italo: Share parent folder with Yash; add Ojoma with view-only access.
+- Italo/Yash: Create the application folder if not already done.
+- Italo/Yash: Move YAML template to framework/templates.
+- Italo/Yash: Create a filled sample YAML config in the app/config folder.
+- Italo/Yash: Keep sample pipeline very small: one source, one target, about five columns.
+- Italo/Yash: Create application DDL in app/ddl if needed for the sample pipeline.
+- Italo/Yash: Build or complete framework validator for config schema/version validation.
+- Italo/Yash: Build or complete framework parser to translate valid config into metadata actions/output.
+- Italo/Yash: Add PyTest unit tests for framework code from the beginning.
+- Italo/Yash: Use consistent naming/casing conventions across files/folders.
+- Italo/Yash: Maintain a separate brainstorming backlog for future ideas rather than coding everything immediately.
+- Italo/Yash: Prepare a small demo showing the config-read/validate/parse/output path.
+- Italo/Yash: Meet/check in with Ojoma before any formal Rashid demo.
+- Italo: If Rashid asks for progress in a one-on-one, provide a status update focused on structure, separation of concerns, quality approach, repo readiness, and planned asset-bundle step after repo setup.
+
+## Risks / warnings raised
+- Too many half-built components will slow progress and make the demo weak.
+- Jumping to CICD/asset bundles before parser/validator/config flow works is premature.
+- Mixing framework/application artifacts creates confusion and may make downstream use hard.
+- Inconsistent naming and cluttered folders create quality and collaboration issues.
+- Data quality and complex scenarios are valuable but should be deferred until the skeleton works.
+- Without PyTest/unit tests, framework evolution may break earlier functionality silently.
+- Demoing too early to Rashid could create confusion or reflect poorly on the team.
+
+## Suggested status update wording for Rashid
+We are intentionally building the iDEE-for-Databricks work in small, complete increments. Right now we are separating the framework developer view from the downstream application user view. We created/are creating a shared Databricks workspace folder structure with separate framework and app folders. The framework side will hold the YAML template, schema/version validation, parser, metadata setup logic, and unit tests. The app side will hold a filled sample config, simple application DDL, and a minimal hello-world pipeline. Before moving into repos, asset bundles, and CICD, we are proving the core config-read/validate/parse flow end to end with a very small full-refresh pipeline. Once the repos and AD groups are ready, we will move the clean structure into the repo and then begin asset-bundle/CICD work.
+
+## Open questions / follow-ups
+- Confirm exact folder naming convention: `iDEE_DBX_framework` and `iDEE_DBX_app` or alternate final names.
+- Confirm YAML schema versioning syntax and where version appears in the config.
+- Confirm exact metadata tables required for first parser output.
+- Confirm whether parser should initially emit insert statements, structured objects, or write directly to metadata tables.
+- Confirm minimum PyTest coverage expectations once SonarQube is introduced.
+- Confirm demo date and whether Rashid demo should target Thursday after Ojoma review.
+
+## Low-token AI prompt for later use
+Use this meeting context: The team discussed iDEE for Databricks. Ojoma instructed Italo and Yash to stop jumping ahead to asset bundles/CICD and instead build a minimal complete skeleton first: a clean shared Databricks folder structure with separate framework and application folders; framework owns YAML templates, schema/version validation, parser, metadata setup, orchestration, and PyTest tests; application owns filled sample config, sample DDL/data, and a tiny hello-world pipeline. First demo should show a simple filled YAML config being validated, parsed, and producing metadata actions/output for a tiny full-refresh pipeline. Data quality, append/incremental loads, migrations, asset bundles, and CICD are later. Italo/Yash should clean naming/folders, share the parent folder with Yash and view-only with Ojoma, hold each other accountable, and review with Ojoma before a formal Rashid demo.
