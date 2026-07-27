@@ -1,0 +1,77 @@
+# =============================================================
+# iDEE Dataset Onboarding Config
+# One file per dataset. Fill this out and submit to onboard.
+# =============================================================
+
+# --- Source ---
+# Where does your data come from?
+source:
+  source_id: "enter source code here"         # Exact physical source instance (teams sharing the same source use the same code)
+  source_name: "enter display name here"      # Nickname for your source
+  source_type: cloud_files                    # cloud_files | jdbc | lakeflow_connect | kafka | api
+  ingestion_method: autoloader                # autoloader | jdbc | lakeflow_connect | kafka | api
+  landing_required: true                      # true = files land in a staging volume before Bronze
+  connection_ref: "enter connection here"     # UC connection name or secret scope reference
+  root_path: "enter cloud path here"         # Root cloud storage path (leave empty for non-file sources)
+
+# --- Dataset ---
+# What dataset to process and how?
+dataset:
+  object_id: "enter dataset code here"        # Unique code for this dataset
+  object_name: "enter dataset name here"      # Nickname for this dataset
+  source_path: "enter path here"              # Specific path or table name under root_path
+  file_format: csv                            # csv | json | parquet | delta | avro (leave empty for non-file)
+  load_type: INCREMENTAL                      # FULL | INCREMENTAL | CDC | SNAPSHOT
+  primary_key: "enter key column(s) here"    # Column(s) that uniquely identify a record, comma-separated
+  incremental_column: "enter column here"    # Column that tracks when data was added/updated (only for INCREMENTAL)
+  bronze_table: "enter catalog.schema.table"  # Where raw data lands after ingestion
+  silver_table: "enter catalog.schema.table"  # Where cleaned data lands (leave empty if stopping at Bronze)
+
+# --- Columns ---
+# What should each column look like after cleaning?
+columns:
+  - source_column: "enter source column name"  # Column name as it appears in the source
+    target_column: "enter target name"         # What you want to rename it to
+    target_type: STRING                        # Data type to cast to: STRING | BIGINT | DOUBLE | TIMESTAMP | DATE | BOOLEAN
+    primary_key: true                          # Is this column part of the business key?
+    trim: true                                 # Strip leading/trailing whitespace?
+    pii: PUBLIC                                # Sensitivity level: PII | SENSITIVE | PUBLIC
+
+
+# --- Data Quality Rules ---
+# NOTE: DQ rules are NOT configured here. They live in a separate YAML file
+# managed by the engineering team — users do not need to fill this out.
+# This new YAML file live with the framework code and is not part of the user config. The user config only points to it.
+#
+# How it works:
+#   1. The pipeline reads this config to know WHAT data to process.
+#   2. A separate rules YAML (managed by us) defines the DQ checks for each dataset.
+#   3. At runtime, we have 2 options either the pipeline points to that rules YAML or the user config file points to the rules YAML
+#.     and uses Great Expectations (GX) to build and execute validations — GX natively supports YAML-based expectation suites.
+#   4. Users never interact with GX or the rules file directly.
+#
+# This keeps user configs simple and prevents accidental pipeline breakage.
+
+quality_rules:
+  - rule_name: "Customer ID must not be null"
+    expression: "customer_id IS NOT NULL"
+    action: fail                              # warn | drop | quarantine | fail
+    severity: critical                        # informational | warning | error | critical
+
+  - rule_name: "Email format check"
+    expression: "email IS NULL OR email LIKE '%@%'"
+    action: warn
+    severity: warning
+
+  - rule_name: "Order amount non-negative"
+    expression: "order_amount >= 0"
+    action: quarantine
+    severity: error
+
+  - rule_name: "Created date must be valid"
+    expression: "TRY_CAST(created_date AS TIMESTAMP) IS NOT NULL"
+    action: drop
+    severity: error
+
+
+
