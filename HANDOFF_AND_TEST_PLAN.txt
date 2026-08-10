@@ -1,0 +1,639 @@
+================================================================================
+iDEE FOR DATABRICKS - HANDOFF AND TEST PLAN
+================================================================================
+For:      The AI agent verifying this work inside Databricks
+Package:  idee_for_databricks_merged_verified.zip
+Version:  Framework 0.1.0 | Config schema v0.1
+Written:  2026-08-06
+
+PURPOSE OF THIS DOCUMENT
+  This explains what was built, how it works, what is deliberately NOT built,
+  what has and has not been verified, and exactly how to test it on a cluster.
+  It is written to be actionable: every claim below is either something you can
+  check, or is flagged as unverified.
+
+  READ SECTION 2 FIRST. It states honestly what has not been tested. Do not
+  assume anything in this package has run on a cluster.
+
+================================================================================
+1. WHAT THIS IS
+================================================================================
+
+A metadata-driven ELT framework for Databricks. A data engineer onboards a
+dataset by filling out ONE YAML file. The framework validates it, parses it into
+metadata tables, and then executes it: reads the source, shapes the data,
+applies data quality rules, writes the target, records the run.
+
+No new pipeline code per dataset. No new notebook. No framework change.
+
+THE CENTRAL DESIGN CLAIM (test this)
+  One engine runs every hop. Nothing in the config names a medallion layer -
+  there is no "bronze_table" field. A pipeline has a source and a target; which
+  layer each represents lives only in the names the user chose. The same
+  executor therefore runs landing->bronze, bronze->silver and silver->gold.
+
+  The package ships three configs specifically to prove this: they use different
+  source types and different column modes, and run through identical code.
+
+================================================================================
+2. VERIFICATION STATUS - READ THIS BEFORE TRUSTING ANYTHING
+================================================================================
+
+WHAT HAS BEEN VERIFIED (off-cluster, no Spark)
+  - 217 automated tests pass.
+  - Every Python file compiles; every module imports cleanly.
+  - Every YAML file parses.
+  - Every column the parser writes exists in the DDL that creates the table
+    (checked programmatically, both directions).
+  - Every component matches the signature declared in contracts.py.
+  - Every file path referenced by a notebook resolves to a real file.
+  - Naming conventions hold: no spaces/parens in filenames, no .yml, all
+    folders lowercase, all SQL numbered NN_verb_object.sql.
+  - The executor orchestration was smoke-tested with a faked Spark: all three
+    configs reach SUCCESS, and the failure paths behave correctly.
+
+WHAT HAS *NOT* BEEN VERIFIED - THIS IS THE ENTIRE RISK
+  Nothing in this package has ever run on a Databricks cluster.
+
+  pyspark was not available in the environment where this was built, so every
+  actual Spark call is unexercised:
+     spark.read.format(...).load(...)
+     spark.table(...)
+     df.select / withColumn / filter / write.saveAsTable
+     F.current_timestamp(), F.trim(), F.expr(), F.to_json(), F.greatest()
+     dbutils.notebook.run(...)
+     All CREATE TABLE and MERGE statements against Unity Catalog
+
+  The tests cover DECISION logic (which columns, which action wins, which write
+  mode, what the audit row contains). They do not cover the Spark calls that act
+  on those decisions.
+
+  HISTORICAL NOTE THAT MATTERS: an earlier version of this engine, written
+  inline in a notebook, DID run successfully on a cluster. This version has the
+  same behaviour but restructured into a tested package. So the logic is
+  cluster-proven in its previous form; this specific code is not. Your job is to
+  close that gap.
+
+  Expect to find real problems in the Spark calls. That is the expected outcome
+  of this test run, not a failure of it.
+
+================================================================================
+3. STRUCTURE
+================================================================================
+
+idee_for_databricks/
+├── HOW_IT_WORKS.md              flow from both roles' perspectives
+├── README.md
+│
+├── idee_dbx_framework/          BUILT ONCE - SHARED BY EVERY TEAM
+│   ├── templates/
+│   │   └── idee_pipeline_config_template.yaml    the blank YAML users copy
+│   ├── schema/
+│   │   └── pipeline_config_schema_v0_1.yaml      the validation contract
+│   ├── src/idee_dbx/
+│   │   ├── config_validator.py   is this config legal?
+│   │   ├── config_parser.py      what metadata rows does it produce?
+│   │   ├── metadata_loader.py    apply them to Unity Catalog
+│   │   ├── main.py               CLI: validate / parse / load
+│   │   └── runtime/              THE EXECUTION ENGINE
+│   │       ├── contracts.py          interfaces + component registries
+│   │       ├── config_resolver.py    metadata -> RunContext
+│   │       ├── source_readers.py     cloud_files, delta_table
+│   │       ├── transformer.py        star, explicit, notebook
+│   │       ├── dq_engine.py          inline rules, alias resolution
+│   │       ├── target_writers.py     delta writer, quarantine writer
+│   │       ├── audit_logger.py       run audit rows
+│   │       └── executor.py           orchestrates all five stages
+│   ├── ddl/metadata/            8 metadata tables (idee_metaschema)
+│   ├── ddl/runtime/             1 shared quarantine table (idee_app)
+│   ├── tests/                   217 tests
+│   ├── notebooks/
+│   │   ├── run_framework_validation.py   <- FRAMEWORK ENGINEER RUNS THIS
+│   │   └── run_config_pipeline.py        single-config runner
+│   └── docs/                    guides, decisions, changelog, merge notes
+│
+└── idee_dbx_app/                ONE PER APPLICATION TEAM
+    ├── config/                  3 filled configs, one per column mode
+    ├── ddl/                     bronze + silver tables
+    ├── data/                    2 sample CSVs
+    ├── notebooks/
+    │   ├── run_sample_pipeline.py         <- DATA ENGINEER RUNS THIS
+    │   └── transform_customer_combined.py custom transform for notebook mode
+    └── docs/DEMO_GUIDE.md
+
+WHY THE SPLIT EXISTS
+  The framework is shared. If the engine lived in the app folder, the next team
+  to adopt iDEE would copy it and get a private fork; two forks drift and bug
+  fixes stop propagating. The app folder holds only this team's filled configs,
+  their DDL, their sample data, and a notebook that CALLS the framework.
+
+  Test for a violation: no file under idee_dbx_app/ should contain reusable
+  framework logic. run_sample_pipeline.py should be imports and calls only.
+
+================================================================================
+4. THE METADATA MODEL - 8 TABLES
+================================================================================
+
+In idee_metaschema. All created by ddl/metadata/, in filename order.
+
+  pipeline_config       one row per pipeline (= per YAML file)
+  source_config         where data is read FROM
+  target_config         where data is written TO
+  dataset_config        what to process and how
+  column_config         explicit column mapping (explicit mode only)
+  quality_rule_config   DQ rules (inline engine only)
+  config_parse_audit    which YAML was parsed, when, did it work
+  pipeline_audit        which data moved, when, how much, did it work
+
+TWO AUDIT TABLES AT DIFFERENT GRAINS - this is deliberate
+  config_parse_audit records READING A CONFIG. pipeline_audit records MOVING
+  DATA. They fail for different reasons and are read by different people.
+  Forcing them into one table would leave half the columns null on every row.
+
+  NOTE: config_parse_audit is CREATED but nothing writes to it yet. That is a
+  known gap, not a bug to report.
+
+IDS ARE GENERATED, NEVER USER-SUPPLIED
+  pipeline_id, source_id, target_id, dataset_id, rule_id are all SHA-256 hashes
+  (truncated to 12 chars) of stable inputs. No config contains an ID field.
+
+  Determinism is load-bearing: re-parsing the same config MERGEs onto the same
+  rows instead of inserting duplicates. A random UUID would silently double the
+  metadata on every re-run.
+
+  pipeline_id = hash(pipeline_name + config file name). Both together, so
+  copying a YAML to a new filename produces a NEW pipeline rather than
+  overwriting the original.
+
+  source_id = hash(source_type + connection_ref + root_path + source_table).
+  It keys on WHERE THE SOURCE POINTS, not who uses it - so two pipelines reading
+  the same location automatically share one source row. That is what makes a
+  source reusable without a separate registry.
+
+  TESTABLE: the two landing configs both read the same volume path, so they
+  should produce the SAME source_id. Check this.
+
+ETL AUDIT COLUMNS - the framework owns exactly four
+  _ingested_at    when THIS run wrote the row
+  _run_id         the run that produced it (joins to pipeline_audit.run_id)
+  _pipeline_id    which pipeline produced it
+  _source_file    resolved source path or table
+
+  They are added by the TRANSFORMER, not the writer - one owner, so they can
+  never be duplicated or forgotten.
+
+  CRITICAL CORRECTNESS RULE: in star mode with exclude_etl_columns: true (the
+  default), these are STRIPPED from the source read and written fresh. Without
+  that, a table-to-table hop copies the upstream load timestamp forward and the
+  target claims it was loaded when the SOURCE was. The failure is silent and
+  only surfaces during an audit.
+
+  TESTABLE: after running bronze->silver, silver_customer._ingested_at must be
+  LATER than bronze_customer._ingested_at, and silver._run_id must differ from
+  bronze._run_id.
+
+================================================================================
+5. THE THREE COLUMN MODES
+================================================================================
+
+dataset.column_mode is a single enum: star | explicit | notebook
+
+  star      every source column passes through unchanged. Bronze.
+  explicit  rename and cast via the columns: block; unlisted columns dropped.
+            Silver.
+  notebook  run a user notebook holding complex SQL. Gold, or multi-source.
+
+WHY AN ENUM AND NOT THREE BOOLEANS
+  A previous version used allow_select_star / allow_select_columns /
+  allow_custom_notebook. Three booleans encode eight states; only three are
+  meaningful. The other five are contradictions that something has to resolve,
+  and the old code resolved them with an if-chain that silently picked a winner:
+  setting star=true and notebook=true ran the notebook and ignored star, with no
+  warning. The enum makes those five states unrepresentable.
+
+NOTEBOOK MODE - THE STAGING TABLE CONTRACT
+  This is the most intricate part of the system. Test it carefully.
+
+  1. The framework computes a staging table name:
+        {catalog}.{app_schema}._staging_{dataset_id}
+     Keyed on dataset_id so two notebook pipelines cannot collide.
+
+  2. It calls dbutils.notebook.run(notebook_path, timeout, {
+        "staging_table": <that name>, "run_id": <run id> })
+
+  3. The notebook does whatever it likes and writes its result to that table.
+
+  4. The framework reads the staging table, adds the ETL audit columns, trims if
+     configured, applies DQ rules, writes the target, then DROPS the staging
+     table (in a finally block, so it happens even on failure).
+
+  WHY A TABLE AND NOT A TEMP VIEW - DO NOT "SIMPLIFY" THIS
+     dbutils.notebook.run executes in a SEPARATE SPARK SESSION on serverless
+     compute. A temp view created inside the notebook is invisible to the
+     caller. A real table is the only thing that crosses the session boundary.
+     This was discovered by debugging on an actual cluster. If you are tempted
+     to replace it with createOrReplaceTempView, that is the bug you would be
+     reintroducing.
+
+  NOTEBOOK MODE CANNOT DRY-RUN. The notebook must execute before there is
+  anything to inspect. Requesting a dry run raises a clear error.
+
+FOOL-PROOFING - AMBIGUITY IS REFUSED, NEVER GUESSED
+  A design question was raised and deliberately answered NO: if explicit mode
+  has no columns, should the framework fall back to the notebook, and vice
+  versa?
+
+  It must not. Those modes produce COMPLETELY DIFFERENT DATASETS - explicit maps
+  five renamed customer columns; the notebook unions two files into three. A
+  silent fallback would write the wrong shape while the audit log claimed the
+  other mode ran. On a 2am scheduled run that is days of bad data plus metadata
+  that lies.
+
+  So instead:
+
+  AT VALIDATION TIME (before anything runs)
+    - explicit with no columns:        -> ERROR
+    - notebook with no notebook_path   -> ERROR
+    - notebook AND a columns: block    -> ERROR (pick one), unless the fallback
+                                          is explicitly declared
+    - notebook_path pointing at nothing-> ERROR
+    - notebook_path unverifiable       -> WARNING (validating off-cluster cannot
+                                          see workspace paths)
+
+  AT RUN TIME
+    - staging table missing  -> fail, naming the table and the notebook
+    - staging table empty    -> fail, with the row count
+    - dbutils not supplied   -> fail, explaining it is Databricks-only
+
+  THE DECLARED ESCAPE HATCH
+    dataset.on_empty_notebook: fail        (default)
+    dataset.on_empty_notebook: use_columns (opt-in; REQUIRES a columns: block)
+
+    With use_columns the config still describes what happened and the audit
+    stays true, because a human chose the behaviour on purpose.
+
+================================================================================
+6. HOW A RUN WORKS - FIVE STAGES
+================================================================================
+
+  resolve -> read -> transform -> apply_dq -> write      (+ audit around it)
+
+  RESOLVE   config_resolver reads the metadata tables for a PIPELINE NAME (not
+            a file path - a scheduler knows a name) and builds a RunContext.
+
+  READ      A reader chosen by source_config.source_type.
+            cloud_files: batch read, inferSchema OFF on purpose (inferring means
+            the same file can land with different types on different days
+            depending on which rows Spark sampled).
+            delta_table: spark.table(...). This is what makes hop 2 and 3 work.
+
+  TRANSFORM A transformer chosen by dataset_config.column_mode. Adds the four
+            ETL audit columns.
+
+  APPLY_DQ  Runs BEFORE the write - you cannot quarantine a row you already
+            wrote. All rules evaluate in ONE pass; each row is tagged with the
+            actions it tripped, and the STRICTEST decides its fate:
+                warn(0) < drop(1) < quarantine(2) < fail(3)
+            So a row failing both a warn and a fail rule is treated as fail.
+
+            A fail-action rule sets failed_hard and returns NORMALLY - it does
+            not raise - so the executor can still write a FAILED audit row.
+            Nothing is written to the target in that case.
+
+  WRITE     A writer chosen by target_config.target_type.
+            FULL -> mode("overwrite"). Atomic in Delta: a concurrent reader sees
+            the old version or the new one, never an empty table. (Contrast
+            truncate-then-insert, which has a real empty window.)
+
+  AUDIT     Written by the EXECUTOR, not the components - one place, one truth,
+            and it still works when a component raises. A STARTED row before
+            reading, then a MERGE-updated final row.
+
+COMPONENT REGISTRIES
+  Components register themselves into dicts in contracts.py. The executor looks
+  each one up by what the metadata says. Adding a source type means registering
+  a function, never editing the executor. Asking for something unregistered
+  raises ComponentNotRegistered naming it and listing what IS available.
+
+================================================================================
+7. WHAT IS IMPLEMENTED VS NOT
+================================================================================
+
+  AREA           IMPLEMENTED                  NOT IMPLEMENTED
+  sources        cloud_files, delta_table     jdbc, kafka, api, lakeflow_connect
+  targets        delta_table                  s3, adls, jdbc
+  load types     FULL                         INCREMENTAL, CDC, SNAPSHOT
+  column modes   star, explicit, notebook     -
+  DQ engines     inline                       native, great_expectations
+  layers         landing->bronze->silver      silver->gold (needs a config only)
+
+WHERE THE FRAMEWORK STARTS
+  At LANDING, not at source. Nothing here moves files from a source system into
+  the landing volume. Files are assumed already present, put there by a vendor
+  push, an existing job, or Lakeflow Connect. There is no source->landing step
+  and none is claimed.
+
+NOT BUILT AT ALL
+  - Databricks Jobs / scheduling. dataset.schedule is RECORDED in metadata and
+    nothing acts on it. The notebooks run the ETL; nothing creates a Job.
+  - Asset bundles / CI-CD.
+  - config_parse_audit is created but never written to.
+  - Gold layer configs (the engine supports it; no config ships).
+
+EVERY UNIMPLEMENTED OPTION IS PRESENT IN THE CONFIGS, COMMENTED OUT, labelled
+IMPLEMENTED or NOT YET. Selecting one still VALIDATES - with a warning naming it
+as unimplemented - and then fails at run time with a specific error. That is
+intentional: you learn at validate time, not halfway through a run.
+
+  TESTABLE: uncomment load_type: INCREMENTAL. Validation should PASS with a
+  warning containing "NOT IMPLEMENTED". Running it should fail with a message
+  naming FULL as the only supported type.
+
+================================================================================
+8. THE THREE SHIPPED CONFIGS
+================================================================================
+
+1. customers_landing_to_bronze_config.yaml
+     source cloud_files (CSV in a Volume) -> target bronze_customer
+     column_mode: star | load_type: FULL
+     DQ: 2 inline rules using aliases (1 quarantine, 1 warn)
+
+2. customers_bronze_to_silver_config.yaml
+     source delta_table (bronze_customer) -> target silver_customer
+     column_mode: explicit | load_type: FULL | 5 columns renamed and cast
+     DQ: 4 inline rules (fail, warn, quarantine, drop - one of each action)
+     THIS IS THE LAYER-AGNOSTIC PROOF: source_type is delta_table, and it runs
+     through identical code to config 1.
+
+3. customers_combined_landing_to_bronze_config.yaml
+     source cloud_files -> target bronze_customer_combined
+     column_mode: notebook | load_type: FULL
+     Runs transform_customer_combined, which unions TWO CSVs with DIFFERENT
+     column names (CUSTOMER_ID vs CUST_ID) into one standardised dataset.
+     bronze_customer_combined has NO DDL on purpose - in notebook mode the
+     notebook decides the shape, so the framework creates it on first write.
+
+DQ ALIASES
+  Rules are stored with {alias} placeholders intact, e.g.
+  "{customer_id} IS NOT NULL". The alias map is persisted on
+  dataset_config.dq_aliases as "alias=col1,col2;alias=col3". At run time the
+  engine resolves each placeholder to the first candidate column that actually
+  exists, case-insensitively. If none exist it FAILS rather than substituting a
+  missing column - a rule that evaluates against a column that is not there
+  looks like it passed, which is worse than having no rule.
+
+SAMPLE DATA HAS DELIBERATE DEFECTS
+  customer_sample.csv contains a malformed email ("not-an-email"), a
+  three-character country code ("USA" where two are expected), and untrimmed
+  whitespace. This is so DQ rules visibly fire. A demo where everything passes
+  proves nothing. Do not "fix" the data.
+
+================================================================================
+9. HOW TO TEST THIS - STEP BY STEP
+================================================================================
+
+PREREQUISITES
+  - Unity Catalog catalog, default: medtech_md_scion_dev
+  - Two schemas that ALREADY EXIST: idee_metaschema, idee_app
+      The framework VERIFIES these and refuses to create them. A mistyped
+      schema name should stop the run rather than silently create a second
+      schema with tables scattered across both.
+  - A Volume at /Volumes/<catalog>/idee_app/landing/customer/incoming/
+  - Both CSVs from idee_dbx_app/data/ uploaded into that Volume.
+  - The whole idee_for_databricks folder in the workspace.
+
+--------------------------------------------------------------------------------
+PHASE A - FRAMEWORK ENGINEER
+  Notebook: idee_dbx_framework/notebooks/run_framework_validation.py
+--------------------------------------------------------------------------------
+  FIRST: edit the PROJECT_ROOT variable at the top to your workspace path.
+  It appears TWICE - once at the top, once after restartPython() (which clears
+  all variables). Both must be set.
+
+  Run cells in order. Expected:
+
+  Phase 1     both folders FOUND
+  Phase 2     pip install pytest pyyaml, then restartPython()
+  Phase 2c    paths re-set after the restart
+  Phase 3     pytest: EXPECT 217 PASSED, exit code 0
+              Uses -c docs/pytest.ini (the ini lives under docs/) and
+              -p no:cacheprovider (workspace storage often refuses the
+              .pytest_cache write, which looks like a test failure but is not).
+              If pytest cannot run at all, copy the framework folder to /tmp and
+              run there - that is a known workspace-storage limitation.
+  Phase 4     all 3 configs PASSED
+  Phase 5     6 deliberately broken configs, each FAILED with an error naming
+              the exact field
+  Phase 5b    the blank template FAILED on placeholder text
+  Phase 6     preflight: 2 rows, idee_app and idee_metaschema, both FOUND
+  Phase 6b    8 metadata tables created
+  Phase 6b2   quarantine_records created in idee_app
+  Phase 6c    8 tables, 0 rows each
+  Phase 7     dry run: parse plan + MERGE statements printed, NOTHING written
+  Phase 8     metadata loaded for all 3 pipelines
+  Phase 9     re-load; metadata row counts MUST NOT CHANGE
+  Phase 10    pipeline dry run
+  Phase 11    landing -> bronze, real. bronze_customer populated.
+  Phase 12    bronze -> silver, real. silver_customer populated.
+  Phase 13    quarantine_records and pipeline_audit inspected
+  Phase 14    re-run the data load; bronze_customer count MUST NOT CHANGE
+
+--------------------------------------------------------------------------------
+PHASE B - DATA ENGINEER
+  Notebook: idee_dbx_app/notebooks/run_sample_pipeline.py
+--------------------------------------------------------------------------------
+  Widgets: catalog, metadata_schema, app_schema, config_file (dropdown of all
+  three), dry_run.
+
+  Run once per config. For the notebook-mode config, dry_run MUST be false.
+
+  Steps: create app tables -> validate -> parse -> review SQL -> load metadata
+  -> RUN THE PIPELINE -> show data -> show quarantine and audit.
+
+--------------------------------------------------------------------------------
+PHASE C - THE CHECKS THAT MATTER MOST
+--------------------------------------------------------------------------------
+C1. IDEMPOTENCY (the highest-value check)
+    Run any pipeline twice. Compare before/after:
+      SELECT COUNT(*) FROM <catalog>.idee_app.bronze_customer;
+      SELECT COUNT(*) FROM <catalog>.idee_metaschema.dataset_config;
+    Both must be UNCHANGED. Metadata uses MERGE with deterministic IDs; data
+    uses FULL overwrite. Most metadata frameworks quietly double their rows
+    here. If a count doubles, that is a serious bug - report it.
+
+C2. ETL AUDIT COLUMNS ARE REGENERATED, NOT INHERITED
+      SELECT MAX(_ingested_at) FROM <catalog>.idee_app.bronze_customer;
+      SELECT MAX(_ingested_at) FROM <catalog>.idee_app.silver_customer;
+    Silver must be LATER than bronze. Their _run_id values must DIFFER.
+    If silver's _ingested_at equals bronze's, exclude_etl_columns is broken and
+    the audit trail is lying.
+
+C3. SOURCE REUSE
+      SELECT source_id, COUNT(*) FROM <catalog>.idee_metaschema.source_config
+      GROUP BY source_id;
+    The two landing configs point at the same Volume path, so they should share
+    ONE source_id row rather than creating two.
+
+C4. THE LAYER-AGNOSTIC CLAIM
+      SELECT p.pipeline_name, s.source_type,
+             COALESCE(s.source_table, s.root_path) AS reads_from,
+             t.target_table AS writes_to, d.column_mode
+      FROM <catalog>.idee_metaschema.pipeline_config p
+      JOIN <catalog>.idee_metaschema.dataset_config d ON d.pipeline_id=p.pipeline_id
+      JOIN <catalog>.idee_metaschema.source_config  s ON s.source_id=d.source_id
+      JOIN <catalog>.idee_metaschema.target_config  t ON t.target_id=d.target_id;
+    Three rows, three different (source_type, column_mode) combinations, all
+    executed by the same code.
+
+C5. DQ ROUTING
+    quarantine_records should contain the rows with the 3-char country code.
+    record_json holds the row as JSON; query with get_json_object.
+    quarantine must APPEND across runs, not overwrite - run twice and confirm
+    earlier rows survive.
+
+C6. THE FAIL ACTION STOPS THE WRITE
+    In customers_bronze_to_silver_config.yaml there is a rule with action: fail
+    on customer_id IS NOT NULL. Force it to fail (e.g. add a row with an empty
+    CUSTOMER_ID to the CSV, reload bronze, then run silver). Expected:
+    pipeline FAILED, silver_customer NOT modified, a FAILED row in
+    pipeline_audit with the rule name in error_message.
+
+C7. NOTEBOOK MODE STAGING TABLE IS CLEANED UP
+    After the notebook-mode pipeline:
+      SHOW TABLES IN <catalog>.idee_app LIKE '_staging_*';
+    Should be EMPTY - the executor drops it in a finally block.
+
+C8. UNIMPLEMENTED OPTIONS FAIL LOUDLY, NOT SILENTLY
+    In a config, change load_type to INCREMENTAL and add
+    incremental_column: CREATED_DATE. Validation should PASS with a warning
+    containing "NOT IMPLEMENTED". The run should FAIL naming FULL as the only
+    supported type. It must NOT silently do a FULL load.
+
+================================================================================
+10. MOST LIKELY FAILURE POINTS - CHECK THESE FIRST
+================================================================================
+
+Ranked by my estimate of risk, highest first.
+
+1. dbutils.notebook.run PARAMETER PASSING
+   The framework passes {"staging_table": ..., "run_id": ...} as the third
+   positional argument. The notebook reads them via dbutils.widgets.get. If the
+   argument form is wrong the notebook falls back to its DEFAULT staging table
+   name and the framework reads a table the notebook never wrote - producing a
+   confusing "did not create the staging table" error. Verify the notebook
+   actually received the passed name.
+
+2. F.greatest() OVER THE DQ FLAG COLUMNS
+   dq_engine builds one flag column per rule, maps each to a numeric severity,
+   and takes greatest() to find the strictest action per row. This is the most
+   intricate Spark expression in the codebase and is completely unexercised.
+   Verify row routing against hand-counted expectations from the CSV.
+
+3. PRIMARY KEY / FOREIGN KEY CONSTRAINT SYNTAX
+   The metadata DDL declares informational PRIMARY KEY ... RELY and
+   FOREIGN KEY ... NOT ENFORCED RELY constraints. These need Unity Catalog and a
+   recent runtime. If your runtime rejects them, STRIP the CONSTRAINT lines -
+   they are optimizer hints, not enforcement, and the framework works
+   identically without them.
+
+4. overwriteSchema ON THE DELTA WRITE
+   The writer sets overwriteSchema only when mode is overwrite. If the target
+   exists with a different schema and this is mishandled, the write fails.
+
+5. TIMESTAMP LITERALS IN THE AUDIT MERGE
+   audit_logger renders timestamps as TIMESTAMP 'YYYY-MM-DD HH:MM:SS'. Verify
+   Databricks SQL accepts that form in a MERGE USING SELECT.
+
+6. F.to_json(F.struct(...)) FOR QUARANTINE
+   Serialising an arbitrary row to JSON. Unexercised.
+
+7. WORKSPACE PATHS
+   notebook_path in the config is a workspace path
+   (/Users/iduran3@its.jnj.com/...). It is hardcoded to one user and WILL need
+   changing for another workspace. The validator checks existence and warns if
+   it cannot verify.
+
+================================================================================
+11. BUGS FOUND AND FIXED DURING THIS AUDIT
+================================================================================
+
+Recorded so you know what was already caught, and can confirm the fixes hold.
+
+1. THE DQ ENGINE CHOICE NEVER REACHED THE RUNTIME
+   quality.engine was validated and then discarded - never persisted. The
+   executor hardcoded "inline". A config asking for native or
+   great_expectations would have silently run the inline engine with ZERO
+   rules, skipping data quality entirely instead of failing.
+   FIX: persisted as dataset_config.dq_engine; the executor reads it.
+   LOCKED BY: TestEngineChoiceSurvives.
+
+2. THE E2E NOTEBOOK NEVER PASSED dbutils
+   A regex-based edit silently matched nothing, so none of the four
+   execute_pipeline calls passed dbutils. The notebook-mode pipeline would have
+   failed with "notebook mode needs dbutils".
+   FIX: all four calls now pass it. Verified by counting.
+
+3. APP DDL DECLARED COLUMNS THE FRAMEWORK DOES NOT WRITE
+   bronze_customer declared lowercase column names while star mode passes the
+   CSV's UPPERCASE headers through; it declared only _ingested_at of the four
+   audit columns. silver_customer declared _processed_at, which is not a
+   framework column at all. With overwriteSchema the writes would still have
+   succeeded, so nothing would have failed - the DDL was simply a lie about
+   what the table contains.
+   FIX: both rewritten to match exactly.
+   LOCKED BY: TestAppDDLMatchesEngine.
+
+4. BROKEN CONFIG REFERENCES IN BOTH SOURCE BRANCHES
+   The app notebook's dropdown named two configs that had been renamed; the
+   framework notebooks and conftest.py named a config that did not exist.
+   FIX: all corrected.
+   LOCKED BY: TestFileReferences.
+
+5. A NOTEBOOK FILENAME WITH SPACES
+   "iDEE Framework End to End Validation.py" violated the project's own naming
+   standard and causes shell/path problems.
+   FIX: renamed run_framework_validation.py; all references updated.
+   LOCKED BY: TestNamingConventions.
+
+6. FOURTEEN STALE DOC AND DOCSTRING REFERENCES
+   READMEs, the naming doc, and module docstrings referenced renamed configs
+   and the removed per-dataset quarantine table.
+   FIX: all corrected.
+
+Every fix above is now locked by a test in test_package_integrity.py, so it
+cannot silently regress.
+
+================================================================================
+12. WHAT TO REPORT BACK
+================================================================================
+
+Most useful, in order:
+
+1. Did Phase 3 report 217 passed? If not, which tests failed and why.
+2. Did all 8 metadata tables and quarantine_records create successfully?
+   If the CONSTRAINT syntax was rejected, say so - that is environmental.
+3. Did each of the three pipelines reach SUCCESS? Full error text for any
+   that did not.
+4. Row counts: bronze_customer, silver_customer, bronze_customer_combined,
+   quarantine_records, and each metadata table.
+5. C1 idempotency: exact before/after counts.
+6. C2: MAX(_ingested_at) for bronze and silver, and whether _run_id differs.
+7. C3: how many source_config rows exist (expected: fewer than pipelines,
+   because two share a source).
+8. C7: was any _staging_* table left behind?
+9. Any Spark call that failed - these are the expected findings, since none
+   have ever run.
+10. Anything where the behaviour contradicts what this document claims. Those
+    are the most valuable findings of all: it means either the code or this
+    document is wrong, and both matter.
+
+DO NOT
+  - "Fix" the deliberate defects in the sample CSVs.
+  - Replace the staging table with a temp view (see section 5).
+  - Add fallback logic when a mode produces nothing (see section 5).
+  - Populate the _ETL columns by hand.
+  - Create idee_metaschema or idee_app if they are missing - report it instead.
+
+================================================================================
+END
+================================================================================
